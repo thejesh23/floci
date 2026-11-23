@@ -155,6 +155,26 @@ class SsmServiceTest {
     }
 
     @Test
+    void putParameterOverwriteWithoutATypeKeepsTheStoredType() {
+        String region = "eu-west-1";
+        ssmService.putParameter("/app/hosts", "a,b", "StringList", null, false, region);
+        ssmService.putParameter("/app/hosts", "a,b,c", null, null, true, region);
+
+        Parameter param = ssmService.getParameter("/app/hosts", region);
+        assertEquals("StringList", param.getType());
+        assertEquals("a,b,c", param.getValue());
+        assertEquals(2, param.getVersion());
+    }
+
+    @Test
+    void putParameterCreateWithoutATypeStoresAString() {
+        String region = "eu-west-1";
+        ssmService.putParameter("/app/untyped", "v1", null, null, false, region);
+
+        assertEquals("String", ssmService.getParameter("/app/untyped", region).getType());
+    }
+
+    @Test
     void putParameterWithoutOverwriteThrows() {
         String region = "eu-west-1";
         ssmService.putParameter("/app/key", "v1", "String", null, false, region);

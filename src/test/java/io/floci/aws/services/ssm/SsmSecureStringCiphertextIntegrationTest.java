@@ -95,6 +95,18 @@ class SsmSecureStringCiphertextIntegrationTest {
     }
 
     @Test
+    void anOverwriteWithoutATypeKeepsTheParameterASecureString() {
+        String name = "/ciphertext/" + UUID.randomUUID();
+        putSecure(name, "first", null);
+        ssm.putParameter(r -> r.name(name).value("second").overwrite(true));
+
+        Parameter parameter = ssm.getParameter(r -> r.name(name)).parameter();
+
+        assertEquals(ParameterType.SECURE_STRING, parameter.type());
+        assertEquals("second", plaintextOf(decrypt(parameter.value(), parameter.arn())));
+    }
+
+    @Test
     void getParameterWithDecryptionReturnsThePlaintext() {
         String name = "/ciphertext/" + UUID.randomUUID();
         putSecure(name, "s3cr3t", null);

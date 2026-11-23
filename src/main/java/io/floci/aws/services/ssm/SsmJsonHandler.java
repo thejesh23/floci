@@ -127,7 +127,8 @@ public class SsmJsonHandler {
     private Response handlePutParameter(JsonNode request, String region) {
         String name = request.path("Name").asText();
         String value = request.path("Value").asText();
-        String type = request.path("Type").asText("String");
+        // Null when the request has no Type, so an overwrite keeps the stored type.
+        String type = optionalText(request, "Type");
         String description = request.has("Description") ? request.path("Description").asText() : null;
         boolean overwrite = request.path("Overwrite").asBoolean(false);
 

@@ -362,7 +362,9 @@ public class SsmService implements ResourceProvider, StoredResourceArns {
 
         long version = (existing != null) ? existing.getVersion() + 1 : 1;
 
-        Parameter parameter = new Parameter(name, value, type != null ? type : "String");
+        // AWS requires no Type on an update, which keeps the parameter's type.
+        String storedType = type != null ? type : existing != null ? existing.getType() : "String";
+        Parameter parameter = new Parameter(name, value, storedType);
         parameter.setVersion(version);
         parameter.setDescription(description);
         parameter.setKeyId(keyIdOf(parameter.getType(), keyId));
