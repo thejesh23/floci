@@ -112,7 +112,7 @@ public class SqsService implements Resettable, ResourceProvider {
             });
     private final AtomicLong sequenceCounter = new AtomicLong(0);
 
-    private record RedrivePolicy(int maxReceiveCount, String deadLetterTargetArn) {
+    private record RedrivePolicy(String rawPolicy, int maxReceiveCount, String deadLetterTargetArn) {
     }
 
     private record DeduplicationIdentity(String messageId, long sequenceNumber) {
@@ -832,6 +832,7 @@ public class SqsService implements Resettable, ResourceProvider {
         deduplicationCache.remove(storageKey);
         deduplicationIdentityCache.remove(storageKey);
         deduplicationLocks.remove(storageKey);
+        redrivePolicyCache.remove(storageKey);
         if (messageStore != null) {
             messageStore.delete(storageKey);
         }
@@ -1605,18 +1606,25 @@ public class SqsService implements Resettable, ResourceProvider {
             return null;
         }
 
-        return redrivePolicyCache.computeIfAbsent(storageKey, k -> {
-            try {
-                JsonNode rp = new ObjectMapper().readTree(rawPolicy);
-                return new RedrivePolicy(
-                        rp.has("maxReceiveCount") ? rp.get("maxReceiveCount").asInt() : -1,
-                        rp.has("deadLetterTargetArn") ? rp.get("deadLetterTargetArn").asText() : null
-                );
-            } catch (Exception e) {
-                LOG.warnv("Failed to parse RedrivePolicy for queue {0}", queue.getQueueUrl());
-                return null;
-            }
-        });
+        // SetQueueAttributes or a delete and recreate can change the policy, so a cached parse is
+        // reused only while it was made from the policy the queue holds now.
+        RedrivePolicy cached = redrivePolicyCache.get(storageKey);
+        if (cached != null && cached.rawPolicy().equals(rawPolicy)) {
+            return cached;
+        }
+        try {
+            JsonNode rp = new ObjectMapper().readTree(rawPolicy);
+            RedrivePolicy parsed = new RedrivePolicy(rawPolicy,
+                    rp.has("maxReceiveCount") ? rp.get("maxReceiveCount").asInt() : -1,
+                    rp.has("deadLetterTargetArn") ? rp.get("deadLetterTargetArn").asText() : null
+            );
+            redrivePolicyCache.put(storageKey, parsed);
+            return parsed;
+        } catch (Exception e) {
+            LOG.warnv("Failed to parse RedrivePolicy for queue {0}", queue.getQueueUrl());
+            redrivePolicyCache.remove(storageKey);
+            return null;
+        }
     }
 
     private List<Message> doReceiveMessage(String storageKey, String queueUrl, int maxMessages, int visibilityTimeout, String region) {

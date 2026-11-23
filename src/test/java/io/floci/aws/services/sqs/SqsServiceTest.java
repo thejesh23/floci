@@ -1933,6 +1933,46 @@ class SqsServiceTest {
     }
 
     @Test
+    void receiveMessage_appliesARedrivePolicyChangedAfterAReceive() {
+        String region = "us-east-1";
+        Queue oldDlq = sqsService.createQueue("changed-policy-old-dlq", null, region);
+        Queue newDlq = sqsService.createQueue("changed-policy-new-dlq", null, region);
+        Queue source = sqsService.createQueue("changed-policy-source", Map.of("RedrivePolicy",
+                "{\"deadLetterTargetArn\":\"" + queueArn("changed-policy-old-dlq") + "\",\"maxReceiveCount\":\"5\"}"),
+                region);
+        sqsService.sendMessage(source.getQueueUrl(), "poison", 0, null, null, region);
+        assertEquals(1, sqsService.receiveMessage(source.getQueueUrl(), 1, 0, 0, region).size());
+
+        sqsService.setQueueAttributes(source.getQueueUrl(),
+                Map.of("RedrivePolicy", redrivePolicy(queueArn("changed-policy-new-dlq"))), region);
+
+        assertEquals(0, sqsService.receiveMessage(source.getQueueUrl(), 1, 0, 0, region).size());
+        assertEquals(List.of("poison"), bodies(sqsService.peekMessages(newDlq.getQueueUrl(), region)));
+        assertEquals(List.of(), bodies(sqsService.peekMessages(oldDlq.getQueueUrl(), region)));
+    }
+
+    @Test
+    void receiveMessage_appliesTheRedrivePolicyOfAQueueRecreatedUnderTheSameName() {
+        String region = "us-east-1";
+        sqsService.createQueue("recreated-policy-old-dlq", null, region);
+        Queue newDlq = sqsService.createQueue("recreated-policy-new-dlq", null, region);
+        Queue first = sqsService.createQueue("recreated-policy-source", Map.of("RedrivePolicy",
+                "{\"deadLetterTargetArn\":\"" + queueArn("recreated-policy-old-dlq") + "\",\"maxReceiveCount\":\"5\"}"),
+                region);
+        sqsService.sendMessage(first.getQueueUrl(), "first", 0, null, null, region);
+        assertEquals(1, sqsService.receiveMessage(first.getQueueUrl(), 1, 0, 0, region).size());
+        sqsService.deleteQueue(first.getQueueUrl(), region);
+
+        Queue second = sqsService.createQueue("recreated-policy-source",
+                Map.of("RedrivePolicy", redrivePolicy(queueArn("recreated-policy-new-dlq"))), region);
+        sqsService.sendMessage(second.getQueueUrl(), "poison", 0, null, null, region);
+        assertEquals(1, sqsService.receiveMessage(second.getQueueUrl(), 1, 0, 0, region).size());
+
+        assertEquals(0, sqsService.receiveMessage(second.getQueueUrl(), 1, 0, 0, region).size());
+        assertEquals(List.of("poison"), bodies(sqsService.peekMessages(newDlq.getQueueUrl(), region)));
+    }
+
+    @Test
     void startMessageMoveTask_withoutDestinationKeepsMessageWithoutOriginalSource() throws Exception {
         Queue dlq = sqsService.createQueue("orphan-dlq", null, "us-east-1");
         String dlqArn = queueArn("orphan-dlq");
